@@ -244,6 +244,7 @@ impl<'source> HtmlRenderer<'source> {
         options: &HtmlRenderOptions,
     ) -> Result<(), Error> {
         if let Some(tag) = ctx.leftover_tag.take() {
+            ctx.pushln(indent)?;
             ctx.push_unbroken_ln(&tag, indent)?;
         }
 
@@ -264,7 +265,7 @@ impl<'source> HtmlRenderer<'source> {
                     self.write_html_to(ctx, indent, child, format, options)?;
                 }
                 if options.old_style_paragraph {
-                    ctx.leftover_tag = Some("\n<p>".to_owned());
+                    ctx.leftover_tag = Some("<p>".to_owned());
                 } else {
                     ctx.push_unbroken_ln("</p>", indent)?;
                 }
