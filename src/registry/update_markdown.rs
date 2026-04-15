@@ -93,12 +93,11 @@ pub(crate) fn command(
     // Keep `templates_dir` alive for the entire function so that any temporary
     // directory backing a remote/archive virtual directory is not cleaned up
     // before the snippet generator finishes reading `.j2` template files.
-    let templates_dir = VirtualDirectory::try_new(&args.templates).map_err(|e| {
-        Error::InvalidVirtualDirectory {
+    let templates_dir =
+        VirtualDirectory::try_new(&args.templates).map_err(|e| Error::InvalidVirtualDirectory {
             path: args.templates.to_string(),
             error: e.to_string(),
-        }
-    })?;
+        })?;
     let loader =
         FileSystemFileLoader::try_new(resolve_templates_root(&templates_dir), &args.target)?;
     let config = WeaverConfig::try_from_loader(&loader)?;
@@ -305,7 +304,7 @@ mod tests {
                     attribute_registry_base_url: Some("/docs/attributes-registry".to_owned()),
                     templates: VirtualDirectoryPath::LocalArchive {
                         path: "data/update_markdown/templates.tar.gz".to_owned(),
-                        sub_folder: Some("templates".to_owned()),
+                        sub_folder: None,
                     },
                     diagnostic: Default::default(),
                     target: "markdown".to_owned(),
