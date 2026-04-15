@@ -90,19 +90,19 @@ pub(crate) fn command(
     let mut diag_msgs = DiagnosticMessages::empty();
     let params = generate_params_shared(&args.param, &args.params)?;
 
-    // Construct a generator if we were given a `--target` argument.
-    let output = {
-        let templates_dir = VirtualDirectory::try_new(&args.templates).map_err(|e| {
-            Error::InvalidVirtualDirectory {
-                path: args.templates.to_string(),
-                error: e.to_string(),
-            }
+    // Keep `templates_dir` alive for the entire function so that any temporary
+    // directory backing a remote/archive virtual directory is not cleaned up
+    // before the snippet generator finishes reading `.j2` template files.
+    let templates_dir =
+        VirtualDirectory::try_new(&args.templates).map_err(|e| Error::InvalidVirtualDirectory {
+            path: args.templates.to_string(),
+            error: e.to_string(),
         })?;
-        let loader =
-            FileSystemFileLoader::try_new(templates_dir.path().join("registry"), &args.target)?;
-        let config = WeaverConfig::try_from_loader(&loader)?;
-        OutputProcessor::from_template_config(config, loader, params, OutputTarget::Stdout)?
-    };
+    let loader =
+        FileSystemFileLoader::try_new(resolve_templates_root(&templates_dir), &args.target)?;
+    let config = WeaverConfig::try_from_loader(&loader)?;
+    let output =
+        OutputProcessor::from_template_config(config, loader, params, OutputTarget::Stdout)?;
     let policy_config = PolicyArgs {
         policies: vec![],
         skip_policies: true,
@@ -173,6 +173,19 @@ pub(crate) fn command(
         exit_code: 0,
         warnings: None,
     })
+}
+
+/// Resolve the effective templates root.
+/// If a `registry` subdirectory exists under the provided templates directory,
+/// that subdirectory is returned, otherwise the original directory path is returned.
+fn resolve_templates_root(templates_dir: &VirtualDirectory) -> PathBuf {
+    let base = templates_dir.path();
+    let candidate = base.join("registry");
+    if candidate.is_dir() {
+        candidate
+    } else {
+        base.to_path_buf()
+    }
 }
 
 /// Converts from our local error to a diagnostic message response.
@@ -263,5 +276,48 @@ mod tests {
         let exit_directive = run_command(&cli);
         // The command should not fail
         assert_ne!(exit_directive.exit_code, 0);
+    }
+
+    /// Tests that `update-markdown` works when templates are provided as a
+    /// local archive (`.tar.gz`). This exercises the same `TempDir` code path
+    /// used by git URLs and remote archives, ensuring the temporary directory
+    /// is kept alive for the entire duration of snippet generation.
+    #[test]
+    fn test_registry_update_markdown_archive_templates() {
+        let cli = Cli {
+            debug: 0,
+            quiet: false,
+            future: false,
+            allow_git_credentials: false,
+            command: Some(Commands::Registry(RegistryCommand {
+                command: RegistrySubCommand::UpdateMarkdown(RegistryUpdateMarkdownArgs {
+                    markdown_dir: "data/update_markdown/markdown".to_owned(),
+                    registry: RegistryArgs {
+                        registry: VirtualDirectoryPath::LocalFolder {
+                            path: "data/update_markdown/registry".to_owned(),
+                        },
+                        follow_symlinks: false,
+                        include_unreferenced: false,
+                        v2: false,
+                    },
+                    dry_run: true,
+                    attribute_registry_base_url: Some("/docs/attributes-registry".to_owned()),
+                    templates: VirtualDirectoryPath::LocalArchive {
+                        path: "data/update_markdown/templates.tar.gz".to_owned(),
+                        sub_folder: None,
+                    },
+                    diagnostic: Default::default(),
+                    target: "markdown".to_owned(),
+                    param: None,
+                    params: None,
+                }),
+            })),
+        };
+
+        let exit_directive = run_command(&cli);
+        // The command should succeed. Before the fix, this would fail because
+        // the VirtualDirectory (and its TempDir) was dropped before snippet
+        // generation, causing "template not found" errors.
+        assert_eq!(exit_directive.exit_code, 0);
     }
 }
